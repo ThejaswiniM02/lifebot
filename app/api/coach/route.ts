@@ -89,33 +89,38 @@ function demoReply(message: string, context: Awaited<ReturnType<typeof getCoachC
 export async function POST(req: NextRequest) {
   const { message } = await req.json();
   const context = await getCoachContext();
-  console.log('API KEY CHECK:', JSON.stringify(process.env.ANTHROPIC_API_KEY));
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     return NextResponse.json({ reply: demoReply(message, context), demoMode: true });
   }
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',
+    {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY!,
-      'anthropic-version': '2023-06-01',
+      'x-goog-api-key': process.env.GEMINI_API_KEY,
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 600,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: `LOGGED DATA:\n${JSON.stringify(context, null, 2)}\n\nTEJ SAYS: ${message}`,
-        },
-      ],
+      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents: [{
+        role: 'user',
+        parts: [{ text: `LOGGED DATA:\n${JSON.stringify(context, null, 2)}\n\nTEJ SAYS: ${message}` }],
+      }],
+      generationConfig: { maxOutputTokens: 600 },
     }),
-  });
+    }
+  );
 
   const data = await response.json();
-  const text = data.content?.find((b: any) => b.type === 'text')?.text ?? '';
+  if (!response.ok) {
+    return NextResponse.json(
+      { reply: demoReply(message, context), demoMode: true, error: data.error?.message },
+      { status: 200 }
+    );
+  }
+
+  const text = data.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text ?? '').join('') ?? '';
 
   return NextResponse.json({ reply: text });
 }

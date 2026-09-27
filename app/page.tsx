@@ -11,34 +11,59 @@ export default function Home() {
   const [messages, setMessages] = useState<{ role: 'user' | 'coach'; text: string }[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    if (active) {
-      timerRef.current = setInterval(() => {
-        setElapsed(Math.round((Date.now() - new Date(active.started_at).getTime()) / 1000));
-      }, 1000);
-    }
+    if (!active) return;
+
+    const updateElapsed = () => {
+      const startedAt = new Date(active.started_at).getTime();
+      if (Number.isFinite(startedAt)) {
+        setElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+      }
+    };
+
+    updateElapsed();
+    timerRef.current = setInterval(updateElapsed, 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [active]);
 
   async function startSession(category: TaskCategory) {
-    const res = await fetch('/api/sessions', {
-      method: 'POST',
-      body: JSON.stringify({ category }),
-    });
-    setActive(await res.json());
-    setElapsed(0);
+    setError(null);
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.id || !data.started_at) {
+        throw new Error(data.error || 'Could not start the session.');
+      }
+      setActive(data);
+      setElapsed(0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start the session.');
+    }
   }
 
   async function endSession(completed: boolean) {
     if (!active) return;
     const note = prompt('Quick note (optional):') || undefined;
-    await fetch('/api/sessions', {
-      method: 'PATCH',
-      body: JSON.stringify({ id: active.id, completed, note }),
-    });
-    setActive(null);
+    setError(null);
+    try {
+      const res = await fetch('/api/sessions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: active.id, completed, note }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || 'Could not save the session.');
+      setActive(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save the session.');
+    }
   }
 
   async function sendMessage() {
@@ -61,6 +86,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100 p-6 max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Lifebot</h1>
+      {error && <p className="mb-4 rounded-lg bg-red-950 px-3 py-2 text-sm text-red-200">{error}</p>}
 
       <section className="mb-8 border border-neutral-800 rounded-xl p-5">
         {!active ? (
